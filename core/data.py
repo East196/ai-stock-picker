@@ -7,6 +7,11 @@ from datetime import datetime, timedelta
 from typing import Optional
 import os
 import baostock as bs
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class DataManager:
@@ -31,6 +36,7 @@ class DataManager:
             lg = bs.login()
             if lg.error_code != '0':
                 raise Exception(f'baostock 登录失败: {lg.error_msg}')
+            logger.info('login success!')
             self._bs_logged_in = True
             
     def fetch_from_baostock(self, symbol: str, start_date: str = None, end_date: str = None, 
@@ -116,7 +122,7 @@ class DataManager:
             try:
                 return self.fetch_from_baostock(symbol, start_date, end_date)
             except Exception as e:
-                print(f"⚠️ 获取真实数据失败: {e}，使用模拟数据")
+                logger.warning(f"⚠️ 获取真实数据失败: {e}，使用模拟数据")
                 return self.generate_sample_data(symbol)
         return self.generate_sample_data(symbol)
         
@@ -180,3 +186,19 @@ class DataManager:
             df.set_index('date', inplace=True)
             
         return df
+    
+    def save_to_csv(self, data: pd.DataFrame, filename: str) -> str:
+        """
+        保存数据到CSV
+        
+        Args:
+            data: 数据
+            filename: 文件名
+            
+        Returns:
+            保存的文件路径
+        """
+        filepath = os.path.join(self.data_dir, filename)
+        data.to_csv(filepath)
+        logger.info(f"数据已保存到: {filepath}")
+        return filepath

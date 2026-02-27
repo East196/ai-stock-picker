@@ -7,11 +7,23 @@ import numpy as np
 from typing import Dict, List, Optional
 from datetime import datetime
 import logging
+import sys
+import os
+
+# 添加项目根目录到路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.indicators import SMA, EMA, MACD, RSI, BOLL, ATR
+from config import (
+    SCORE_WEIGHTS, MAX_SCORES, RECOMMENDATION_THRESHOLDS,
+    INDICATOR_PARAMS, DATA_PARAMS, LOGGING_CONFIG
+)
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=getattr(logging, LOGGING_CONFIG['level']),
+    format=LOGGING_CONFIG['format']
+)
 logger = logging.getLogger(__name__)
 
 
@@ -22,18 +34,6 @@ class StockAnalyzer:
     基于技术指标进行多维度分析并生成AI评分
     """
     
-    # 评分权重配置
-    WEIGHTS = {
-        'trend': 0.30,      # 趋势指标权重
-        'volume': 0.25,     # 量能指标权重
-        'volatility': 0.20, # 波动指标权重
-        'momentum': 0.15,   # 动量指标权重
-        'risk': 0.10        # 风险指标权重
-    }
-    
-    # 最小数据要求
-    MIN_DATA_LENGTH = 50
-    
     def __init__(self, weights: Dict[str, float] = None):
         """
         初始化分析器
@@ -41,10 +41,10 @@ class StockAnalyzer:
         Args:
             weights: 自定义权重配置
         """
-        if weights:
-            self.weights = {**self.WEIGHTS, **weights}
-        else:
-            self.weights = self.WEIGHTS
+        self.weights = {**SCORE_WEIGHTS, **(weights or {})}
+        self.max_scores = MAX_SCORES
+        self.min_data_length = DATA_PARAMS['min_data_length']
+        self.indicator_params = INDICATOR_PARAMS
         
     def analyze(self, data: pd.DataFrame, symbol: str = None) -> Dict:
         """
@@ -61,8 +61,8 @@ class StockAnalyzer:
             ValueError: 数据不足时
         """
         # 数据校验
-        if data is None or len(data) < self.MIN_DATA_LENGTH:
-            raise ValueError(f"数据不足，至少需要{self.MIN_DATA_LENGTH}天的数据，当前{len(data) if data is not None else 0}天")
+        if data is None or len(data) < self.min_data_length:
+            raise ValueError(f"数据不足，至少需要{self.min_data_length}天的数据，当前{len(data) if data is not None else 0}天")
         
         # 确保数据按日期排序
         data = data.sort_index()
@@ -135,21 +135,17 @@ class StockAnalyzer:
     
     def _analyze_trend(self, data: pd.DataFrame) -> float:
         """
-        分析趋势指标（30分）
-        
-        评分标准：
-        - 均线排列（多头/空头）
-        - MACD信号
-        - 趋势强度
+        分析趋势指标（满分见 MAX_SCORES['trend']）
         """
         score = 0
         close = data['close']
+        p = self.indicator_params
         
         # 1. 均线排列（15分）
-        ma5 = SMA(close, 5)
-        ma10 = SMA(close, 10)
-        ma20 = SMA(close, 20)
-        ma60 = SMA(close, 60)
+        ma5 = SMA(close, p['ma_short'])
+        ma10 = SMA(close, p['ma_medium'])
+        ma20 = SMA(close, p['ma_long'])
+        ma60 = SMA(close, p['ma_very_long'])
         
         ma5_val = self._safe_get(ma5)
         ma10_val = self._safe_get(ma10)
@@ -167,7 +163,7 @@ class StockAnalyzer:
             score += 5
             
         # 2. MACD信号（10分）
-        macd_data = MACD(close)
+        macd_data = MACD(close, p['macd_fast'], p['macd_slow'], p['macd_signal'])
         macd = macd_data['macd']
         signal = macd_data['signal']
         
@@ -191,16 +187,11 @@ class StockAnalyzer:
         if price > ma60_val:
             score += 2
             
-        return min(score, 30)
+        return min(score, self.max_scores['trend'])
     
     def _analyze_volume(self, data: pd.DataFrame) -> float:
         """
-        分析量能指标（25分）
-        
-        评分标准：
-        - 成交量变化
-        - 量价配合
-        - 资金流向
+        分析量能指标（满分见 MAX_SCORES['volume']）
         """
         score = 0
         volume = data['volume']
@@ -243,37 +234,33 @@ class StockAnalyzer:
             elif vol_ma20_val > 0 and vol_now > vol_ma20_val:
                 score += 3
             
-        return min(score, 25)
+        return min(score, self.max_scores['volume'])
     
     def _analyze_volatility(self, data: pd.DataFrame) -> float:
         """
-        分析波动指标（20分）
-        
-        评分标准：
-        - RSI超买超卖
-        - 布林带位置
-        - 波动率
+        分析波动指标（满分见 MAX_SCORES['volatility']）
         """
         score = 0
         close = data['close']
+        p = self.indicator_params
         
         # 1. RSI（10分）
-        rsi = RSI(close, 14)
+        rsi = RSI(close, p['rsi_period'])
         rsi_value = self._safe_get(rsi)
         
-        if 30 <= rsi_value <= 70:
+        if p['rsi_oversold'] <= rsi_value <= p['rsi_overbought']:
             score += 10  # 正常区间
-        elif 20 <= rsi_value < 30:
+        elif p['rsi_severe_oversold'] <= rsi_value < p['rsi_oversold']:
             score += 9   # 超卖区间（买入机会）
-        elif 70 < rsi_value <= 80:
+        elif p['rsi_overbought'] < rsi_value <= p['rsi_severe_overbought']:
             score += 6   # 超买区间
-        elif rsi_value < 20:
+        elif rsi_value < p['rsi_severe_oversold']:
             score += 8   # 严重超卖（更好的买点）
-        elif rsi_value > 80:
+        elif rsi_value > p['rsi_severe_overbought']:
             score += 3   # 严重超买
             
         # 2. 布林带位置（7分）
-        boll = BOLL(close, 20)
+        boll = BOLL(close, p['boll_period'], p['boll_std'])
         upper = self._safe_get(boll['upper'])
         lower = self._safe_get(boll['lower'])
         middle = self._safe_get(boll['middle'])
@@ -300,19 +287,15 @@ class StockAnalyzer:
             else:
                 score += 1
             
-        return min(score, 20)
+        return min(score, self.max_scores['volatility'])
     
     def _analyze_momentum(self, data: pd.DataFrame) -> float:
         """
-        分析动量指标（15分）
-        
-        评分标准：
-        - 涨跌幅
-        - 连续涨跌天数
-        - 突破情况
+        分析动量指标（满分见 MAX_SCORES['momentum']）
         """
         score = 0
         close = data['close']
+        p = self.indicator_params
         
         # 1. 涨跌幅（8分）
         if len(close) >= 5:
@@ -347,7 +330,7 @@ class StockAnalyzer:
             score += 1
             
         # 3. 突破情况（3分）
-        ma20 = SMA(close, 20)
+        ma20 = SMA(close, p['ma_long'])
         ma20_val = self._safe_get(ma20)
         ma20_prev = self._safe_get(ma20, -2)
         price = self._safe_get(close)
@@ -359,16 +342,11 @@ class StockAnalyzer:
         elif price > ma20_val:
             score += 2
             
-        return min(score, 15)
+        return min(score, self.max_scores['momentum'])
     
     def _analyze_risk(self, data: pd.DataFrame) -> float:
         """
-        分析风险指标（10分）
-        
-        评分标准：
-        - 最大回撤
-        - 换手率
-        - 流动性
+        分析风险指标（满分见 MAX_SCORES['risk']）
         """
         score = 0
         close = data['close']
@@ -415,40 +393,36 @@ class StockAnalyzer:
             elif price_cv < 0.2:
                 score += 1
             
-        return min(score, 10)
+        return min(score, self.max_scores['risk'])
     
     def _generate_recommendation(self, score: float) -> Dict:
         """
         生成推荐建议
-        
-        Args:
-            score: 总分
-            
-        Returns:
-            推荐字典
         """
-        if score >= 90:
+        thresholds = RECOMMENDATION_THRESHOLDS
+        
+        if score >= thresholds['strong_buy']:
             return {
                 'level': '强烈推荐',
                 'action': '强烈买入',
                 'stars': '⭐⭐⭐⭐⭐',
                 'description': '各项指标表现优异，建议重点关注'
             }
-        elif score >= 80:
+        elif score >= thresholds['buy']:
             return {
                 'level': '推荐',
                 'action': '买入',
                 'stars': '⭐⭐⭐⭐',
                 'description': '整体表现良好，可以考虑买入'
             }
-        elif score >= 70:
+        elif score >= thresholds['hold']:
             return {
                 'level': '可以考虑',
                 'action': '轻仓买入',
                 'stars': '⭐⭐⭐',
                 'description': '部分指标较好，可小仓位尝试'
             }
-        elif score >= 60:
+        elif score >= thresholds['watch']:
             return {
                 'level': '观望',
                 'action': '持有/观望',
@@ -466,18 +440,13 @@ class StockAnalyzer:
     def _generate_signals(self, data: pd.DataFrame) -> Dict:
         """
         生成详细交易信号
-        
-        Args:
-            data: 股票数据
-            
-        Returns:
-            信号字典
         """
         signals = []
         close = data['close']
+        p = self.indicator_params
         
         # MACD信号
-        macd_data = MACD(close)
+        macd_data = MACD(close, p['macd_fast'], p['macd_slow'], p['macd_signal'])
         macd_val = self._safe_get(macd_data['macd'])
         signal_val = self._safe_get(macd_data['signal'])
         macd_prev = self._safe_get(macd_data['macd'], -2)
@@ -492,24 +461,24 @@ class StockAnalyzer:
             signals.append('MACD空头')
             
         # RSI信号
-        rsi = self._safe_get(RSI(close, 14))
-        if rsi < 30:
+        rsi = self._safe_get(RSI(close, p['rsi_period']))
+        if rsi < p['rsi_oversold']:
             signals.append('RSI超卖')
-        elif rsi > 70:
+        elif rsi > p['rsi_overbought']:
             signals.append('RSI超买')
         else:
             signals.append('RSI正常')
             
         # 均线信号
-        ma5 = self._safe_get(SMA(close, 5))
-        ma20 = self._safe_get(SMA(close, 20))
+        ma5 = self._safe_get(SMA(close, p['ma_short']))
+        ma20 = self._safe_get(SMA(close, p['ma_long']))
         if ma5 > ma20:
             signals.append('短期均线上穿')
         else:
             signals.append('短期均线下穿')
             
         # 布林带信号
-        boll = BOLL(close, 20)
+        boll = BOLL(close, p['boll_period'], p['boll_std'])
         price = self._safe_get(close)
         lower = self._safe_get(boll['lower'])
         upper = self._safe_get(boll['upper'])
