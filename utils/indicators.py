@@ -3,6 +3,7 @@
 """
 import pandas as pd
 import numpy as np
+from typing import Dict
 
 
 def SMA(data: pd.Series, window: int) -> pd.Series:
@@ -33,7 +34,7 @@ def EMA(data: pd.Series, window: int) -> pd.Series:
     return data.ewm(span=window, adjust=False).mean()
 
 
-def MACD(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> dict:
+def MACD(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> Dict:
     """
     MACD指标
     
@@ -61,7 +62,7 @@ def MACD(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> d
 
 def RSI(close: pd.Series, window: int = 14) -> pd.Series:
     """
-    相对强弱指标
+    相对强弱指标（修复版：使用指数平均）
     
     Args:
         close: 收盘价
@@ -71,16 +72,20 @@ def RSI(close: pd.Series, window: int = 14) -> pd.Series:
         RSI序列
     """
     delta = close.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    gain = delta.where(delta > 0, 0)
+    loss = (-delta).where(delta < 0, 0)
     
-    rs = gain / loss
+    # 使用指数移动平均（Wilders Smoothing）
+    avg_gain = gain.ewm(alpha=1/window, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/window, adjust=False).mean()
+    
+    rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
     
     return rsi
 
 
-def BOLL(close: pd.Series, window: int = 20, num_std: int = 2) -> dict:
+def BOLL(close: pd.Series, window: int = 20, num_std: int = 2) -> Dict:
     """
     布林带
     
@@ -105,7 +110,7 @@ def BOLL(close: pd.Series, window: int = 20, num_std: int = 2) -> dict:
 
 
 def KDJ(high: pd.Series, low: pd.Series, close: pd.Series, 
-        n: int = 9, m1: int = 3, m2: int = 3) -> dict:
+        n: int = 9, m1: int = 3, m2: int = 3) -> Dict:
     """
     KDJ指标
     
@@ -123,7 +128,12 @@ def KDJ(high: pd.Series, low: pd.Series, close: pd.Series,
     # 计算RSV
     lowest_low = low.rolling(window=n).min()
     highest_high = high.rolling(window=n).max()
-    rsv = (close - lowest_low) / (highest_high - lowest_low) * 100
+    
+    # 防止除零
+    denominator = highest_high - lowest_low
+    denominator = denominator.replace(0, np.nan)
+    rsv = (close - lowest_low) / denominator * 100
+    rsv = rsv.fillna(50)  # 默认值
     
     # 计算K、D、J
     K = rsv.ewm(com=m1-1, adjust=False).mean()
@@ -175,3 +185,20 @@ def OBV(close: pd.Series, volume: pd.Series) -> pd.Series:
     direction = np.where(close > close.shift(), 1, np.where(close < close.shift(), -1, 0))
     obv = (volume * direction).cumsum()
     return pd.Series(obv, index=close.index)
+
+
+def VWAP(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series) -> pd.Series:
+    """
+    成交量加权平均价
+    
+    Args:
+        high: 最高价
+        low: 最低价
+        close: 收盘价
+        volume: 成交量
+        
+    Returns:
+        VWAP序列
+    """
+    typical_price = (high + low + close) / 3
+    return (typical_price * volume).cumsum() / volume.cumsum()
