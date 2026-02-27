@@ -228,6 +228,8 @@ class ReportGenerator:
         return filepath
     
     def generate_text(self, result: Dict) -> str:
+    
+    def generate_text(self, result: Dict) -> str:
         """
         生成文本报告
         

@@ -102,6 +102,10 @@ class StockAnalyzer:
         ma20 = SMA(data['close'], 20)
         ma60 = SMA(data['close'], 60)
         
+        # 检查是否为有效Series
+        if not isinstance(ma5, pd.Series) or ma5.empty:
+            return 0
+            
         # 多头排列
         if (ma5.iloc[-1] > ma10.iloc[-1] > ma20.iloc[-1] > ma60.iloc[-1]):
             score += 15

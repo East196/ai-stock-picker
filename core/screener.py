@@ -70,9 +70,7 @@ class StockScreener:
         # 返回前N只
         return results[:top_n]
     
-    def screen_by_strategy(self,
-                          symbols: List[str],
-                          strategy: str = 'balanced') -> List[Dict]:
+    def screen_by_strategy(self, symbols: List[str], strategy: str = 'balanced') -> List[Dict]:
         """
         按策略筛选
         
