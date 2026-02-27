@@ -50,8 +50,8 @@ class StockScreener:
             try:
                 print(f"分析中 [{i+1}/{len(symbols)}]: {symbol}")
                 
-                # 获取数据（这里使用模拟数据）
-                data = self.data_manager.generate_sample_data(symbol, days=100)
+                # 获取真实数据
+                data = self.data_manager.get_data(symbol, use_real=True)
                 
                 # 分析
                 result = self.analyzer.analyze(data, symbol)
@@ -123,7 +123,7 @@ class StockScreener:
         
         for symbol in symbols:
             try:
-                data = self.data_manager.generate_sample_data(symbol, days=100)
+                data = self.data_manager.get_data(symbol, use_real=True)
                 result = self.analyzer.analyze(data, symbol)
                 results.append(result)
             except:

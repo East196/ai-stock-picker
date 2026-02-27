@@ -23,9 +23,9 @@ def single_stock_analysis():
     analyzer = StockAnalyzer()
     data_manager = DataManager()
     
-    # 生成模拟数据
+    # 获取真实数据
     symbol = '600570'
-    data = data_manager.generate_sample_data(symbol, days=100)
+    data = data_manager.get_data(symbol, use_real=True)
     
     # 分析
     result = analyzer.analyze(data, symbol)
